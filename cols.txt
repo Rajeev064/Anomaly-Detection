@@ -1,0 +1,14 @@
+✅Brand name
+✅Product Name
+✅Product GTIN
+✅Net Weight,Gross Weight,Net Content
+✅MRP
+Valid From
+Valid Till
+Consumer Care,Contact Person, Consumer Care Phone Number, Consumer Care Email
+✅Fssai Lic. No.
+
+
+Date
+Weight
+Brand Name x Product Name
