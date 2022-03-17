@@ -1,11 +1,14 @@
 # Anomaly detection
 
-## Usage:
+## Usage
 
 ### Train
 
-1. scorer.py is the only relvant file to import and use
-2. Before begin used, the model needs to be trained on some valid data:
+1. To use the model, simply import the `Scorer` class from `scorer.py`
+1. The model is an instance of the `Scorer` class. The constructor does not take any arguments.
+1. Before being used, the model needs to be trained on some valid data:
+
+#### Example
 
 ```
 from scorer import Scorer
@@ -17,11 +20,25 @@ scorer = Scorer()
 scorer.train(df)
 ```
 
-_Note_: The model needs a pandas dataframe of some valid data. It uses this data to extract likely brand names, product names, mrp, weight ratio etc for new inputs passed
+_Note_: The model needs a pandas dataframe of some valid data. It uses this data to extract likely brand names, product names, mrp, weight ratio etc for new inputs passed. An example of valid data can be found in `/data/train-modified.csv`
 
 ### Test
 
-To use the model to generate likelihood scores, just call the model like a function:
+To use the model to generate likelihood scores, just call the model like a function.
+_Note_: The function expects 1 required parameter - the input. The input needs to be an indexable dict-like
+object (like a dict, pandas dataframe row etc.) with the following `str` type keys:
+
+```
+"Product Name"
+"Manufacturer Name" (optional)
+"Product GTIN"
+"MRP"
+"Net Weight"
+"Fssai Lic. No."
+"Consumer Care Email"
+```
+
+#### Examples
 
 ```
 print(
@@ -43,16 +60,4 @@ print(
         "Consumer Care Email": "kconsumer@kellogg.com"
     })
 )
-```
-
-_Note_: The model only input needs to be indexable dict-like object (like a dict, pandas dataframe row etc.) with the following _string_ keys:
-
-```
-    "Product Name"
-    "Manufacturer Name" (optional)
-    "Product GTIN"
-    "MRP"
-    "Net Weight"
-    "Fssai Lic. No."
-    "Consumer Care Email"
 ```
