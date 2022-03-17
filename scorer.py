@@ -15,6 +15,9 @@ class Scorer:
     row = None
     likely_brand = None
 
+    fssai_map = {}
+    contact_email_map = {}
+
     default_column_names = {
         "product": "Product Name",
         "brand": "Manufacturer Name",
@@ -22,10 +25,15 @@ class Scorer:
         "mrp": "MRP",
         "net_weight": "Net Weight",
         "fssai": "Fssai Lic. No.",
+        "contact_email": "Consumer Care Email",
     }
 
     def __init__(self):
         self.column_names = Scorer.default_column_names
+
+    def make_map(self, map, key):
+        for brand, brand_data in self.brand_data.items():
+            map[brand_data[key]] = brand
 
     def train(self, df: pd.DataFrame):
         groups = df.groupby("Manufacturer Name")
@@ -38,13 +46,22 @@ class Scorer:
                 "net_weight": get_numeric_range(brand_df["Net Weight"]),
                 "mrp": get_numeric_range(brand_df["MRP"]),
             }
-            fssai = brand_df["Fssai Lic. No."].mode()
+            fssai = brand_df[brand_df["Fssai Lic. No."].str.len() > 10][
+                "Fssai Lic. No."
+            ].mode()
+
             data["fssai"] = fssai.iloc[0] if len(fssai) > 0 else None
+            contact_email = brand_df["Consumer Care Email"].mode()
+            data["contact_email"] = (
+                contact_email.iloc[0] if len(contact_email) > 0 else None
+            )
             data["weight_ratio"] = (brand_df["Net Weight"] / brand_df["MRP"]).mean()
 
             brand_data[brand_name] = data
 
         self.brand_data = brand_data
+        self.make_map(self.fssai_map, "fssai")
+        self.make_map(self.contact_email_map, "contact_email")
 
     def row_get(self, key):
         if self.row is None or key not in self.column_names:
@@ -63,8 +80,29 @@ class Scorer:
 
         return {"gtin_score": 1 if is_valid_gtin(self.row_get("gtin")) else 0}
 
-    def get_alternate_brand_score(self):
-        raise NotImplementedError
+    def get_alternate_brand_score(self, row_key, map):
+
+        val = pre_process(self.row_get(row_key))
+        print("VALL: " + val)
+
+        likely_brand, brand_score, likely_val = None, 0, val
+
+        if val in map:
+            likely_brand = map[val]
+            brand_score = 1
+        else:
+            likely_val, brand_score = closest(val, map, str_similarity)
+            likely_brand = map[likely_val]
+
+        if likely_brand:
+            self.likely_brand = likely_brand
+
+        return {
+            "likely_brand": likely_brand,
+            "brand_score": brand_score,
+            "brand_resolution": row_key,
+            "brand_resolved_value": val,
+        }
 
     def get_brand_score(self):
         row = self.row
@@ -73,8 +111,11 @@ class Scorer:
             return {}
 
         brand = self.row_get("brand")
+
         if not brand:
-            return self.get_alternate_brand_score()
+            return self.get_alternate_brand_score(
+                "contact_email", self.contact_email_map
+            )
 
         brand = pre_process(brand)
         brand_score = 0

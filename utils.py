@@ -8,7 +8,10 @@ import editdistance
 
 
 def pre_process(s):
-    if type(s) != str or len(s) == 0:
+    if type(s) != str:
+        s = str(s)
+
+    if len(s) == 0:
         return ""
 
     s = s.lower()
@@ -104,6 +107,12 @@ def get_numeric_range(series: pd.Series):
 
 
 def str_similarity(str1, str2):
+    if type(str1) != str:
+        str1 = str(str1)
+
+    if type(str2) != str:
+        str2 = str(str2)
+
     str1, str2 = pre_process(str1), pre_process(str2)
     div = max(len(str1), len(str2))
     return 1 - editdistance.eval(str1, str2) / div
