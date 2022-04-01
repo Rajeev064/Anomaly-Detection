@@ -18,6 +18,8 @@ class Scorer:
     fssai_map = {}
     contact_email_map = {}
 
+    all_products = set()
+
     default_column_names = {
         "product": "Product Name",
         "brand": "Manufacturer Name",
@@ -49,6 +51,8 @@ class Scorer:
             fssai = brand_df[brand_df["Fssai Lic. No."].str.len() > 10][
                 "Fssai Lic. No."
             ].mode()
+
+            self.all_products.update(brand_df["Product Name"].map(pre_process).unique())
 
             data["fssai"] = fssai.iloc[0] if len(fssai) > 0 else None
             contact_email = brand_df["Consumer Care Email"].mode()
@@ -83,7 +87,14 @@ class Scorer:
     def get_alternate_brand_score(self, row_key, map):
 
         val = pre_process(self.row_get(row_key))
-        print("VALL: " + val)
+
+        if not val:
+            return {
+                "likely_brand": None,
+                "brand_score": 0,
+                "brand_resolution": row_key,
+                "brand_resolved_value": val,
+            }
 
         likely_brand, brand_score, likely_val = None, 0, val
 
@@ -135,9 +146,13 @@ class Scorer:
         row = self.row
         brand_data = self.brand_data
         likely_brand = self.likely_brand
-        if row is None or brand_data is None or likely_brand is None:
+        if row is None or brand_data is None:
             return {}
-        products = brand_data[likely_brand]["products"]
+        products = (
+            self.all_products
+            if likely_brand is None
+            else brand_data[likely_brand]["products"]
+        )
         product = pre_process(self.row_get("product"))
 
         product_score = 0
@@ -154,12 +169,12 @@ class Scorer:
         row = self.row
         brand_data = self.brand_data
         likely_brand = self.likely_brand
-        if row is None or brand_data is None or likely_brand is None:
+        if row is None or brand_data is None:
             return {}
 
         val = closest_number(self.row_get(row_key))
-        val_range = brand_data[likely_brand][key]
-        val_score = std_similarity(val, val_range)
+        val_range = brand_data[likely_brand][key] if likely_brand else None
+        val_score = std_similarity(val, val_range) if likely_brand else 0.2
 
         return {
             f"{key}_score": val_score,
@@ -178,7 +193,7 @@ class Scorer:
         brand_data = self.brand_data
         likely_brand = self.likely_brand
         if row is None or brand_data is None or likely_brand is None:
-            return {}
+            return {"weight_ratio_score": 0.2}
 
         ideal_ratio = brand_data[likely_brand]["weight_ratio"]
         ratio = weight / mrp

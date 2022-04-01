@@ -8,6 +8,9 @@ import editdistance
 
 
 def pre_process(s):
+    if not s:
+        return
+
     if type(s) != str:
         s = str(s)
 
