@@ -33,7 +33,7 @@ class Scorer:
         "contact_email": "Consumer Care Email",
     }
 
-    DISCREET_SCALE_BY = 0.38
+    DISCREET_SCALE_BY = 0.37
 
     def __init__(self):
         self.column_names = Scorer.default_column_names
