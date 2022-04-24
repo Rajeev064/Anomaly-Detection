@@ -1,3 +1,4 @@
+import math
 import pandas as pd
 from utils import (
     closest,
@@ -8,6 +9,8 @@ from utils import (
     is_valid_gtin,
     str_similarity,
 )
+
+from tqdm import tqdm
 
 
 class Scorer:
@@ -22,13 +25,15 @@ class Scorer:
 
     default_column_names = {
         "product": "Product Name",
-        "brand": "Manufacturer Name",
-        "gtin": "Product GTIN",
+        "brand": "Company Name",
+        "gtin": "GTIN",
         "mrp": "MRP",
         "net_weight": "Net Weight",
-        "fssai": "Fssai Lic. No.",
+        "fssai": "FSSAI Lic No.",
         "contact_email": "Consumer Care Email",
     }
+
+    DISCREET_SCALE_BY = 0.38
 
     def __init__(self):
         self.column_names = Scorer.default_column_names
@@ -38,28 +43,43 @@ class Scorer:
             map[brand_data[key]] = brand
 
     def train(self, df: pd.DataFrame):
-        groups = df.groupby("Manufacturer Name")
+        groups = df.groupby(self.column_names["brand"])
         brand_data = {}
 
-        for brand, brand_df in groups:
+        for brand, brand_df in tqdm(groups):
             brand_name = pre_process(brand)
             data = {
-                "products": set(brand_df["Product Name"].map(pre_process).unique()),
-                "net_weight": get_numeric_range(brand_df["Net Weight"]),
-                "mrp": get_numeric_range(brand_df["MRP"]),
+                "products": set(
+                    brand_df[self.column_names["product"]].map(pre_process).unique()
+                ),
+                "net_weight": get_numeric_range(
+                    brand_df[self.column_names["net_weight"]]
+                ),
+                "mrp": get_numeric_range(brand_df[self.column_names["mrp"]]),
             }
-            fssai = brand_df[brand_df["Fssai Lic. No."].str.len() > 10][
-                "Fssai Lic. No."
+            fssai = brand_df[brand_df[self.column_names["fssai"]].str.len() > 10][
+                self.column_names["fssai"]
             ].mode()
 
-            self.all_products.update(brand_df["Product Name"].map(pre_process).unique())
+            self.all_products.update(
+                brand_df[self.column_names["product"]].map(pre_process).unique()
+            )
 
             data["fssai"] = fssai.iloc[0] if len(fssai) > 0 else None
-            contact_email = brand_df["Consumer Care Email"].mode()
-            data["contact_email"] = (
-                contact_email.iloc[0] if len(contact_email) > 0 else None
+            contact_email = (
+                brand_df[self.column_names["contact_email"]].mode()
+                if self.column_names["contact_email"] in brand_df
+                else None
             )
-            data["weight_ratio"] = (brand_df["Net Weight"] / brand_df["MRP"]).mean()
+            data["contact_email"] = (
+                (contact_email.iloc[0] if len(contact_email) > 0 else None)
+                if contact_email
+                else None
+            )
+            data["weight_ratio"] = (
+                brand_df[self.column_names["net_weight"]]
+                / brand_df[self.column_names["mrp"]]
+            ).mean()
 
             brand_data[brand_name] = data
 
@@ -91,7 +111,7 @@ class Scorer:
         if not val:
             return {
                 "likely_brand": None,
-                "brand_score": 0,
+                "brand_score": -1,
                 "brand_resolution": row_key,
                 "brand_resolved_value": val,
             }
@@ -148,6 +168,7 @@ class Scorer:
         likely_brand = self.likely_brand
         if row is None or brand_data is None:
             return {}
+
         products = (
             self.all_products
             if likely_brand is None
@@ -174,10 +195,17 @@ class Scorer:
 
         val = closest_number(self.row_get(row_key))
         val_range = brand_data[likely_brand][key] if likely_brand else None
-        val_score = std_similarity(val, val_range) if likely_brand else 0.2
+
+        score = -1
+
+        if val_range:
+            if val_range["min"] <= val and val_range["max"] >= val:
+                score = 1
+            else:
+                score = 0
 
         return {
-            f"{key}_score": val_score,
+            f"{key}_score": score,
             f"likely_{key}": val,
             f"{key}_range": val_range,
         }
@@ -192,24 +220,20 @@ class Scorer:
         row = self.row
         brand_data = self.brand_data
         likely_brand = self.likely_brand
-        if row is None or brand_data is None or likely_brand is None:
-            return {"weight_ratio_score": 0.2}
+        if row is None or brand_data is None or likely_brand is None or mrp == 0:
+            return {"weight_ratio_score": -1}
 
         ideal_ratio = brand_data[likely_brand]["weight_ratio"]
         ratio = weight / mrp
         if ratio == 0 and ideal_ratio == 0:
             return 1
 
-        return {"weight_ratio_score": min(ratio, ideal_ratio) / max(ratio, ideal_ratio)}
+        score = min(ratio, ideal_ratio) / max(ratio, ideal_ratio)
+        if math.isnan(score):
+            score = 0
+        return {"weight_ratio_score": score}
 
     def __call__(self, row, column_names=None):
-        """
-        Currently Uses:
-            Brand Name
-            Product Name
-            MRP
-            Net Weight
-        """
         self.likely_brand = None
         self.row = row
 
@@ -226,12 +250,51 @@ class Scorer:
         )
         gtin_result = self.get_gtin_score()
 
-        overall_score = (
-            brand_result["brand_score"]
-            + product_result["product_score"]
-            + weight_ratio_result["weight_ratio_score"]
-            + gtin_result["gtin_score"]
-        ) / 4
+        brand_score = brand_result["brand_score"]
+        product_score = product_result["product_score"]
+
+        weight_ratio_score = weight_ratio_result["weight_ratio_score"]
+        gtin_score = gtin_result["gtin_score"]
+        mrp_score = mrp_result["mrp_score"]
+        net_weight_score = net_weight_result["net_weight_score"]
+
+        overall_score = 0
+        params_used = 0
+
+        if product_score <= 0.7:
+            overall_score = 0
+        else:
+            useable = [
+                {"score": net_weight_score, "type": "discreet"},
+                {"score": mrp_score, "type": "discreet"},
+                {"score": gtin_score, "type": "discreet"},
+                {"score": product_score, "type": "continuous"},
+            ]
+
+            if brand_score >= 0:
+                useable += [
+                    {"score": brand_score, "type": "continuous"},
+                    {"score": weight_ratio_score, "type": "discreet"},
+                ]
+
+            for idx, score in enumerate(useable):
+                if score["score"] < 0:
+                    useable.pop(idx)
+
+            # Too little data
+            if len(useable) <= 2:
+                overall_score = 0
+
+            num, denom = 0, 0
+
+            for score in useable:
+                scale = Scorer.DISCREET_SCALE_BY if score["type"] == "discreet" else 1
+
+                num += score["score"] * scale
+                denom += scale
+
+            overall_score = num / denom
+            params_used = len(useable)
 
         result = {
             **brand_result,

@@ -100,13 +100,24 @@ def is_valid_gtin(code):
 
 
 def get_numeric_range(series: pd.Series):
-    return {
-        "std": series.std(),
-        "mean": series.mean(),
-        "median": series.median(),
-        "min": series.min(),
-        "max": series.max(),
-    }
+    series = pd.to_numeric(series, errors="coerce").dropna()
+    return (
+        {
+            "std": series.std(),
+            "mean": series.mean(),
+            "median": series.median(),
+            "min": series.min(),
+            "max": series.max(),
+        }
+        if len(series) > 0
+        else {
+            "std": 0,
+            "mean": 0,
+            "median": 0,
+            "min": 0,
+            "max": 0,
+        }
+    )
 
 
 def str_similarity(str1, str2):
